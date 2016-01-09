@@ -12,7 +12,11 @@
     "net451": {},
     "dotnet5.4": {
       "dependencies": {
+<<<<<<< HEAD
         "System.Linq": "4.0.1-beta-23516"
+=======
+        "System.Linq": "4.0.1-*"
+>>>>>>> refs/remotes/aspnet/dev
       }
     }
   }

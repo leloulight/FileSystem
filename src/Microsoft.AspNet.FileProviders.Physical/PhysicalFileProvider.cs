@@ -6,14 +6,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Primitives;
+using Microsoft.AspNet.FileProviders.Physical;
 
 namespace Microsoft.AspNet.FileProviders
 {
     /// <summary>
     /// Looks up files using the on-disk file system
     /// </summary>
-    public class PhysicalFileProvider : IFileProvider
+    public class PhysicalFileProvider : IFileProvider, IDisposable
     {
+        private static readonly char[] _invalidFileNameChars = Path.GetInvalidFileNameChars()
+            .Where(c => c != Path.DirectorySeparatorChar && c != Path.AltDirectorySeparatorChar).ToArray();
         private readonly PhysicalFilesWatcher _filesWatcher;
 
         /// <summary>
@@ -21,6 +24,11 @@ namespace Microsoft.AspNet.FileProviders
         /// </summary>
         /// <param name="root">The root directory. This should be an absolute path.</param>
         public PhysicalFileProvider(string root)
+            : this(root, new PhysicalFilesWatcher(EnsureTrailingSlash(Path.GetFullPath(root))))
+        {
+        }
+
+        internal PhysicalFileProvider(string root, PhysicalFilesWatcher physicalFilesWatcher)
         {
             if (!Path.IsPathRooted(root))
             {
@@ -34,14 +42,18 @@ namespace Microsoft.AspNet.FileProviders
                 throw new DirectoryNotFoundException(Root);
             }
 
-            // Monitor only the application's root folder.
-            _filesWatcher = new PhysicalFilesWatcher(Root);
+            _filesWatcher = physicalFilesWatcher;
+        }
+
+        public void Dispose()
+        {
+            _filesWatcher.Dispose();
         }
 
         /// <summary>
         /// The root directory for this instance.
         /// </summary>
-        public string Root { get; private set; }
+        public string Root { get; }
 
         private string GetFullPath(string path)
         {
@@ -69,6 +81,11 @@ namespace Microsoft.AspNet.FileProviders
             return path;
         }
 
+        private static bool HasInvalidPathChars(string path)
+        {
+            return path.IndexOfAny(_invalidFileNameChars) != -1;
+        }
+
         /// <summary>
         /// Locate a file at the given path by directly mapping path segments to physical directories.
         /// </summary>
@@ -76,7 +93,7 @@ namespace Microsoft.AspNet.FileProviders
         /// <returns>The file information. Caller must check Exists property. </returns>
         public IFileInfo GetFileInfo(string subpath)
         {
-            if (string.IsNullOrEmpty(subpath))
+            if (string.IsNullOrEmpty(subpath) || HasInvalidPathChars(subpath))
             {
                 return new NotFoundFileInfo(subpath);
             }
@@ -105,7 +122,7 @@ namespace Microsoft.AspNet.FileProviders
                 return new NotFoundFileInfo(subpath);
             }
 
-            return new PhysicalFileInfo(_filesWatcher, fileInfo);
+            return new PhysicalFileInfo(fileInfo);
         }
 
         /// <summary>
@@ -117,7 +134,7 @@ namespace Microsoft.AspNet.FileProviders
         {
             try
             {
-                if (subpath == null)
+                if (subpath == null || HasInvalidPathChars(subpath))
                 {
                     return new NotFoundDirectoryContents();
                 }
@@ -152,7 +169,7 @@ namespace Microsoft.AspNet.FileProviders
                         var fileInfo = fileSystemInfo as FileInfo;
                         if (fileInfo != null)
                         {
-                            virtualInfos.Add(new PhysicalFileInfo(_filesWatcher, fileInfo));
+                            virtualInfos.Add(new PhysicalFileInfo(fileInfo));
                         }
                         else
                         {
@@ -194,110 +211,8 @@ namespace Microsoft.AspNet.FileProviders
             return _filesWatcher.CreateFileChangeToken(filter);
         }
 
-        private class PhysicalFileInfo : IFileInfo
-        {
-            private readonly FileInfo _info;
 
-            private readonly PhysicalFilesWatcher _filesWatcher;
 
-            public PhysicalFileInfo(PhysicalFilesWatcher filesWatcher, FileInfo info)
-            {
-                _info = info;
-                _filesWatcher = filesWatcher;
-            }
 
-            public bool Exists
-            {
-                get { return _info.Exists; }
-            }
-
-            public long Length
-            {
-                get { return _info.Length; }
-            }
-
-            public string PhysicalPath
-            {
-                get { return _info.FullName; }
-            }
-
-            public string Name
-            {
-                get { return _info.Name; }
-            }
-
-            public DateTimeOffset LastModified
-            {
-                get
-                {
-                    return _info.LastWriteTimeUtc;
-                }
-            }
-
-            public bool IsDirectory
-            {
-                get { return false; }
-            }
-
-            public Stream CreateReadStream()
-            {
-                // Note: Buffer size must be greater than zero, even if the file size is zero.
-                return new FileStream(
-                    PhysicalPath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite,
-                    1024 * 64,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-            }
-        }
-
-        private class PhysicalDirectoryInfo : IFileInfo
-        {
-            private readonly DirectoryInfo _info;
-
-            public PhysicalDirectoryInfo(DirectoryInfo info)
-            {
-                _info = info;
-            }
-
-            public bool Exists
-            {
-                get { return _info.Exists; }
-            }
-
-            public long Length
-            {
-                get { return -1; }
-            }
-
-            public string PhysicalPath
-            {
-                get { return _info.FullName; }
-            }
-
-            public string Name
-            {
-                get { return _info.Name; }
-            }
-
-            public DateTimeOffset LastModified
-            {
-                get
-                {
-                    return _info.LastWriteTimeUtc;
-                }
-            }
-
-            public bool IsDirectory
-            {
-                get { return true; }
-            }
-
-            public Stream CreateReadStream()
-            {
-                throw new InvalidOperationException("Cannot create a stream for a directory.");
-            }
-        }
     }
 }

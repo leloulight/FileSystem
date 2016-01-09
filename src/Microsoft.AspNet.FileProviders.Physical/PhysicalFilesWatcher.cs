@@ -8,23 +8,25 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Primitives;
 
-namespace Microsoft.AspNet.FileProviders
+namespace Microsoft.AspNet.FileProviders.Physical
 {
-    internal class PhysicalFilesWatcher
+    public class PhysicalFilesWatcher : IDisposable
     {
         private readonly ConcurrentDictionary<string, FileChangeToken> _tokenCache =
             new ConcurrentDictionary<string, FileChangeToken>(StringComparer.OrdinalIgnoreCase);
-
         private readonly FileSystemWatcher _fileWatcher;
-
         private readonly object _lockObject = new object();
-
         private readonly string _root;
 
-        internal PhysicalFilesWatcher(string root)
+        public PhysicalFilesWatcher(string root)
+            : this(root, new FileSystemWatcher(root))
+        {
+        }
+
+        public PhysicalFilesWatcher(string root, FileSystemWatcher fileSystemWatcher)
         {
             _root = root;
-            _fileWatcher = new FileSystemWatcher(root);
+            _fileWatcher = fileSystemWatcher;
             _fileWatcher.IncludeSubdirectories = true;
             _fileWatcher.Created += OnChanged;
             _fileWatcher.Changed += OnChanged;
@@ -53,6 +55,11 @@ namespace Microsoft.AspNet.FileProviders
             }
 
             return changeToken;
+        }
+
+        public void Dispose()
+        {
+            _fileWatcher.Dispose();
         }
 
         private void OnRenamed(object sender, RenamedEventArgs e)
